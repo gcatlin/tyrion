@@ -47,7 +47,7 @@ typedef struct {
 #define buf_cap(b)        ((b) ? buf__cap(b) : 0)
 #define buf_len(b)        ((b) ? buf__len(b) : 0)
 #define buf_hdr(b)        ((buf_hdr_t *)buf__raw(b))
-#define buf_free(b)       ((b) ? free(buf__raw(b)) : 0, (b) = NULL)
+#define buf_free(b)       ((b) ? free(buf__raw(b)), (b) = NULL : 0)
 #define buf_push(b, x)    (buf__fit(b, 1), (b)[buf__len(b)++] = (x), (b))
 #define buf_reserve(b, n) (buf__fit(b, (n)), (b)[buf__len(b)])
 // clang-format on
@@ -109,12 +109,10 @@ const char *token_kind_names[] = {
 
 typedef struct {
     TokenKind kind;
+    const char *start;
+    const char *end;
     union {
         u64 u64;
-        struct {
-            const char *start;
-            const char *end;
-        };
     };
     // ...
 } Token;
@@ -132,8 +130,8 @@ const char *stream;
 
 void next_token()
 {
-    char chr = *stream;
-    switch (chr) {
+    token.start = stream;
+    switch (*stream) {
         case '0':
         case '1':
         case '2':
@@ -207,35 +205,34 @@ void next_token()
         case 'Z':
         case '_': {
             token.kind = TOKEN_NAME;
-            token.start = stream;
             while (isalnum(*stream) || *stream == '_') {
                 stream++;
             }
-            token.end = stream;
             break;
         }
         default:
             token.kind = *stream++;
             break;
     }
+    token.end = stream;
 }
 
 void print_token(Token t)
 {
     TokenKind k = token.kind;
-    printf("TOKEN:  ");
+    printf("TOKEN: ");
     switch (k) {
         case TOKEN_INT:
-            printf("%llu", token.u64);
+            printf(" %llu", token.u64);
             break;
         case TOKEN_NAME:
-            printf("\"%.*s\"", (int)(token.end - token.start), token.start);
             break;
         default:
-            printf("'%c'", token.kind);
+            // printf("'%c'", token.kind);
             break;
     }
-    printf(" (%s)", token_kind_name(t));
+    printf("\t\"%.*s\"", (int)(token.end - token.start), token.start);
+    printf("\t(%s)", token_kind_name(t));
     printf("\n");
 }
 
