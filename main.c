@@ -1,9 +1,12 @@
 #include <assert.h>
 #include <ctype.h>
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef uint64_t u64;
 
@@ -100,6 +103,46 @@ typedef enum {
     // ...
 } TokenKind;
 
+typedef struct {
+    size_t len;
+    const char *str;
+} intern_str_t;
+
+static intern_str_t *interns;
+
+const char *str_intern_range(const char *restrict start, const char *restrict end)
+{
+    size_t len = end - start;
+    for (size_t i = 0, n = buf_len(interns); i < n; i++) {
+        if (interns[i].len == len && strncmp(interns[i].str, start, len) == 0) {
+            return interns[i].str;
+        }
+    }
+
+    char *str = xmalloc(len + 1);
+    memcpy(str, start, len);
+    str[len] = 0;
+    buf_push(interns, ((intern_str_t){len, str}));
+    return str;
+}
+
+const char *str_intern(const char *str)
+{
+    return str_intern_range(str, str + strlen(str));
+}
+
+void str_intern_test()
+{
+    char x[] = "hello";
+    char y[] = "hello";
+    char z[] = "hello!";
+    assert(x != y && x != z);
+    const char *xp = str_intern(x);
+    const char *yp = str_intern(y);
+    const char *zp = str_intern(z);
+    assert(xp == yp && xp != zp);
+}
+
 const char *token_kind_names[] = {
 // clang-format off
     [TOKEN_INT]  = "TOKEN_INT",
@@ -113,14 +156,15 @@ typedef struct {
     const char *end;
     union {
         u64 u64;
+        const char *name;
     };
     // ...
 } Token;
 
-const char *token_kind_name(Token t)
+const char *token_kind_name(TokenKind kind)
 {
-    if (t.kind >= TOKEN_INT) {
-        return token_kind_names[t.kind];
+    if (kind >= TOKEN_INT) {
+        return token_kind_names[kind];
     }
     return "ASCII";
 }
@@ -204,10 +248,11 @@ void next_token()
         case 'Y':
         case 'Z':
         case '_': {
-            token.kind = TOKEN_NAME;
             while (isalnum(*stream) || *stream == '_') {
                 stream++;
             }
+            token.kind = TOKEN_NAME;
+            token.name = str_intern_range(token.start, stream);
             break;
         }
         default:
@@ -232,13 +277,13 @@ void print_token(Token t)
             break;
     }
     printf("\t\"%.*s\"", (int)(token.end - token.start), token.start);
-    printf("\t(%s)", token_kind_name(t));
+    printf("\t(%s)", token_kind_name(token.kind));
     printf("\n");
 }
 
 void lex_text(void)
 {
-    const char *source = "+()_HELLO1,234+foo!994";
+    const char *source = "XY+(XY)_HELLO1,234+foo!994";
     printf("SOURCE: \"%s\"\n", source);
     stream = source;
     next_token();
@@ -251,5 +296,6 @@ void lex_text(void)
 int main()
 {
     buf_test();
+    str_intern_test();
     lex_text();
 }
