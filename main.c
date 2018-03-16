@@ -44,13 +44,18 @@ typedef struct {
 #define buf__fits(b, n) ((b) && buf__len(b)+(n) <= buf__cap(b))
 #define buf__grow(b, n) (*((void **)&(b)) = buf___grow((b), buf_len(b)+(n), sizeof(*(b))))
 
-size_t     buf_cap(const void *b)  { return (b ? buf__cap(b) : 0); }
-size_t     buf_len(const void *b)  { return (b ? buf__len(b) : 0); }
-buf_hdr_t *buf_hdr(const void *b)  { return (buf_hdr_t *)buf__raw(b); }
-#define    buf_free(b)       ((b) ? free(buf__raw(b)) : 0, (b) = NULL)
-#define    buf_push(b, x)    (buf__fit(b, 1), (b)[buf__len(b)++] = (x), (b))
-#define    buf_reserve(b, n) (buf__fit(b, (n)), (b)[buf__len(b)])
+#define buf_cap(b)        ((b) ? buf__cap(b) : 0)
+#define buf_len(b)        ((b) ? buf__len(b) : 0)
+#define buf_hdr(b)        ((buf_hdr_t *)buf__raw(b))
+#define buf_free(b)       ((b) ? free(buf__raw(b)) : 0, (b) = NULL)
+#define buf_push(b, x)    (buf__fit(b, 1), (b)[buf__len(b)++] = (x), (b))
+#define buf_reserve(b, n) (buf__fit(b, (n)), (b)[buf__len(b)])
 // clang-format on
+
+// for use in debugger
+size_t bufcap(const void *b) { return buf_cap(b); }
+size_t buflen(const void *b) { return buf_len(b); }
+buf_hdr_t *_bufhdr(const void *b) { return buf_hdr(b); }
 
 void *buf___grow(const void *b, size_t len, size_t elem_size)
 {
