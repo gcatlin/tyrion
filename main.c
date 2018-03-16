@@ -1,15 +1,15 @@
 #include <assert.h>
 #include <ctype.h>
-#include <stddef.h> 
-#include <stdlib.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 typedef uint64_t u64;
 
 #define MAX(x, y) ((x) >= (y) ? (x) : (y))
 
-void *xrealloc(void *ptr, size_t new_size) 
+void *xrealloc(void *ptr, size_t new_size)
 {
     ptr = realloc(ptr, new_size);
     if (!ptr) {
@@ -19,7 +19,7 @@ void *xrealloc(void *ptr, size_t new_size)
     return ptr;
 }
 
-void *xmalloc(size_t size) 
+void *xmalloc(size_t size)
 {
     void *ptr = malloc(size);
     if (!ptr) {
@@ -35,6 +35,7 @@ typedef struct {
     char buf[];
 } buf_hdr_t;
 
+// clang-format off
 #define buf__raw(b) ((size_t *)(b)-2)
 #define buf__len(b) buf__raw(b)[0]
 #define buf__cap(b) buf__raw(b)[1]
@@ -49,11 +50,13 @@ buf_hdr_t *buf_hdr(const void *b)  { return (buf_hdr_t *)buf__raw(b); }
 #define    buf_free(b)       ((b) ? free(buf__raw(b)) : 0, (b) = NULL)
 #define    buf_push(b, x)    (buf__fit(b, 1), (b)[buf__len(b)++] = (x), (b))
 #define    buf_reserve(b, n) (buf__fit(b, (n)), (b)[buf__len(b)])
+// clang-format on
 
-void *buf___grow(const void *b, size_t len, size_t elem_size) {
-    size_t cap = MAX(2*buf_cap(b), len);
+void *buf___grow(const void *b, size_t len, size_t elem_size)
+{
+    size_t cap = MAX(2 * buf_cap(b), len);
     assert(0 < cap && len <= cap);
-    size_t size = offsetof(buf_hdr_t, buf) + elem_size*cap;
+    size_t size = offsetof(buf_hdr_t, buf) + elem_size * cap;
     buf_hdr_t *hdr = xrealloc(b ? buf__raw(b) : NULL, size);
     hdr->cap = cap;
     if (!b) {
@@ -69,8 +72,10 @@ typedef enum {
 } TokenKind;
 
 const char *token_kind_names[] = {
-    [TOKEN_INT]   = "TOKEN_INT",
-    [TOKEN_NAME]  = "TOKEN_NAME",
+// clang-format off
+    [TOKEN_INT]  = "TOKEN_INT",
+    [TOKEN_NAME] = "TOKEN_NAME",
+// clang-format on
 };
 
 typedef struct {
@@ -85,7 +90,8 @@ typedef struct {
     // ...
 } Token;
 
-const char *token_kind_name(Token t) {
+const char *token_kind_name(Token t)
+{
     if (t.kind >= TOKEN_INT) {
         return token_kind_names[t.kind];
     }
@@ -194,7 +200,7 @@ void print_token(Token t)
             printf("%llu", token.u64);
             break;
         case TOKEN_NAME:
-            printf("\"%.*s\"", (int)(token.end-token.start), token.start);
+            printf("\"%.*s\"", (int)(token.end - token.start), token.start);
             break;
         default:
             printf("'%c'", token.kind);
@@ -238,7 +244,7 @@ void buf_test(void)
     buf_free(b);
 }
 
-int main() 
+int main()
 {
     buf_test();
     lex_text();
