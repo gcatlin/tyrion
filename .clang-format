@@ -1,0 +1,4 @@
+BreakBeforeBraces: AllMan
+AllowShortIfStatementsOnASingleLine: true
+IndentCaseLabels: true
+ColumnLimit: 0
