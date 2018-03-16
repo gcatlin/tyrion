@@ -53,7 +53,6 @@ typedef struct {
 #define buf_free(b)       ((b) ? free(buf__raw(b)), (b) = NULL : 0)
 #define buf_push(b, x)    (buf__fit(b, 1), (b)[buf__len(b)++] = (x), (b))
 #define buf_reserve(b, n) (buf__fit(b, (n)), (b)[buf__len(b)])
-// clang-format on
 
 // for use in debugger
 size_t bufcap(const void *b) { return buf_cap(b); }
@@ -67,11 +66,10 @@ void *buf___grow(const void *b, size_t len, size_t elem_size)
     size_t size = offsetof(buf_hdr_t, buf) + elem_size * cap;
     buf_hdr_t *hdr = xrealloc(b ? buf__raw(b) : NULL, size);
     hdr->cap = cap;
-    if (!b) {
-        hdr->len = 0;
-    }
+    if (!b) hdr->len = 0;
     return hdr->buf;
 }
+// clang-format on
 
 void buf_test(void)
 {
@@ -122,7 +120,7 @@ const char *str_intern_range(const char *restrict start, const char *restrict en
     char *str = xmalloc(len + 1);
     memcpy(str, start, len);
     str[len] = 0;
-    buf_push(interns, ((intern_str_t){len, str}));
+    buf_push(interns, ((intern_str_t){ len, str }));
     return str;
 }
 
@@ -144,10 +142,10 @@ void str_intern_test()
 }
 
 const char *token_kind_names[] = {
-// clang-format off
+    // clang-format off
     [TOKEN_INT]  = "TOKEN_INT",
     [TOKEN_NAME] = "TOKEN_NAME",
-// clang-format on
+    // clang-format on
 };
 
 typedef struct {
