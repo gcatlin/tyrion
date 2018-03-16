@@ -70,6 +70,30 @@ void *buf___grow(const void *b, size_t len, size_t elem_size)
     return hdr->buf;
 }
 
+void buf_test(void)
+{
+    // setup
+    int *b = NULL;
+    int N = 1024;
+
+    // push increases len and cap
+    assert(buf_len(b) == 0);
+    for (int i = 0; i < N; i++) {
+        buf_push(b, i);
+    }
+    assert(buf_len(b) == N);
+    assert(buf_cap(b) >= N);
+
+    // push sets values
+    for (int i = 0, max = buf_len(b); i < max; i++) {
+        assert(b[i] == i);
+    }
+
+    buf_free(b);
+    assert(buf_free(b) == NULL);
+    assert(!buf_len(b));
+}
+
 typedef enum {
     TOKEN_INT = 128,
     TOKEN_NAME,
@@ -225,28 +249,6 @@ void lex_text(void)
         print_token(token);
         next_token();
     }
-}
-
-void buf_test(void)
-{
-    // setup
-    int *b = NULL;
-    int N = 1024;
-
-    // push increases len and cap
-    for (int i = 0; i < N; i++) {
-        buf_push(b, i);
-    }
-    assert(buf_len(b) == N);
-    assert(buf_cap(b) >= N);
-
-    // push sets values
-    for (int i = 0, max = buf_len(b); i < max; i++) {
-        assert(b[i] == i);
-    }
-
-    // teardown
-    buf_free(b);
 }
 
 int main()
