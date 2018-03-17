@@ -8,8 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef uint64_t u64;
-
 #define MAX(x, y) ((x) >= (y) ? (x) : (y))
 
 void *xrealloc(void *ptr, size_t new_size)
@@ -30,6 +28,17 @@ void *xmalloc(size_t size)
         exit(1);
     }
     return ptr;
+}
+
+void fatal(const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    printf("FATAL: ");
+    vprintf(fmt, args);
+    printf("\n");
+    va_end(args);
+    exit(1);
 }
 
 typedef struct {
@@ -95,12 +104,6 @@ void buf_test(void)
     assert(!buf_len(b));
 }
 
-typedef enum {
-    TOKEN_INT = 128,
-    TOKEN_NAME,
-    // ...
-} TokenKind;
-
 typedef struct {
     size_t len;
     const char *str;
@@ -131,15 +134,26 @@ const char *str_intern(const char *str)
 
 void str_intern_test()
 {
-    char x[] = "hello";
-    char y[] = "hello";
-    char z[] = "hello!";
-    assert(x != y && x != z);
-    const char *xp = str_intern(x);
-    const char *yp = str_intern(y);
-    const char *zp = str_intern(z);
-    assert(xp == yp && xp != zp);
+    char a[] = "hello";
+    assert(strcmp(a, str_intern(a)) == 0);
+    assert(str_intern(a) == str_intern(a));
+    assert(str_intern(str_intern(a)) == str_intern(a));
+    char b[] = "hello";
+    assert(a != b);
+    assert(str_intern(a) == str_intern(b));
+    char c[] = "hello!";
+    assert(str_intern(a) != str_intern(c));
+    char d[] = "hell";
+    assert(str_intern(a) != str_intern(d));
 }
+
+typedef enum {
+    // Reserve first 128 values for one-char tokens
+    TOKEN_LAST_CHAR = 127,
+    TOKEN_INT,
+    TOKEN_NAME,
+    // ...
+} TokenKind;
 
 const char *token_kind_names[] = {
     // clang-format off
@@ -153,15 +167,14 @@ typedef struct {
     const char *start;
     const char *end;
     union {
-        u64 u64;
+        int num;
         const char *name;
     };
-    // ...
 } Token;
 
 const char *token_kind_name(TokenKind kind)
 {
-    if (kind >= TOKEN_INT) {
+    if (kind > TOKEN_LAST_CHAR) {
         return token_kind_names[kind];
     }
     return "ASCII";
@@ -169,6 +182,18 @@ const char *token_kind_name(TokenKind kind)
 
 Token token;
 const char *stream;
+
+const char *keyword_if;
+const char *keyword_for;
+const char *keyword_while;
+
+void init_keywords()
+{
+    keyword_if = str_intern("if");
+    keyword_for = str_intern("for");
+    keyword_while = str_intern("while");
+    // ...
+}
 
 void next_token()
 {
@@ -184,13 +209,13 @@ void next_token()
         case '7':
         case '8':
         case '9': {
-            uint64_t val = 0;
+            int val = 0;
             while (isdigit(*stream)) {
                 val *= 10;
                 val += *stream++ - '0';
             }
             token.kind = TOKEN_INT;
-            token.u64 = val;
+            token.num = val;
             break;
         }
         case 'a':
@@ -260,13 +285,19 @@ void next_token()
     token.end = stream;
 }
 
-void print_token(Token t)
+void init_stream(const char *str)
+{
+    stream = str;
+    next_token();
+}
+
+void print_token(Token token)
 {
     TokenKind k = token.kind;
     printf("TOKEN: ");
     switch (k) {
         case TOKEN_INT:
-            printf(" %llu", token.u64);
+            printf(" %d", token.num);
             break;
         case TOKEN_NAME:
             break;
@@ -279,21 +310,154 @@ void print_token(Token t)
     printf("\n");
 }
 
-void lex_text(void)
+// static inline bool is_token_name(const char *name)
+// {
+//     return token.kind == TOKEN_NAME && token.name == name;
+// }
+
+static inline bool is_token(TokenKind kind)
+{
+    return token.kind == kind;
+}
+
+static inline bool match_token(TokenKind kind)
+{
+    if (is_token(kind)) {
+        next_token();
+        return true;
+    }
+    return false;
+}
+
+static inline bool expect_token(TokenKind kind)
+{
+    if (is_token(kind)) {
+        next_token();
+        return true;
+    }
+    fatal(
+        "expected token %s, got %s\n", token_kind_name(kind),
+        token_kind_name(token.kind));
+    return false;
+}
+
+void lex_test(void)
 {
     const char *source = "XY+(XY)_HELLO1,234+foo!994";
     printf("SOURCE: \"%s\"\n", source);
-    stream = source;
-    next_token();
+    init_stream(source);
     while (token.kind) {
         print_token(token);
         next_token();
     }
 }
 
+//
+// Grammar
+//
+// expr3 = INT | '(' expr ')'
+// expr2 = '-' expr2 | expr3
+// expr1 = expr2 ([*/] expr2)*
+// expr0 = expr1 ([+-] expr1)*
+// expr  = expr0
+
+int parse_expr();
+
+int parse_expr3()
+{
+    if (is_token(TOKEN_INT)) {
+        int val = token.num;
+        next_token();
+        return val;
+    } else if (match_token('(')) {
+        int val = parse_expr();
+        expect_token(')');
+        return val;
+    }
+    fatal("expected integer of (, got \"%s\"", token_kind_name(token.kind));
+    return 0;
+}
+
+int parse_expr2()
+{
+    if (match_token('-')) {
+        return -parse_expr2();
+    } else if (match_token('+')) {
+        return parse_expr2();
+    }
+    return parse_expr3();
+}
+
+int parse_expr1()
+{
+    int val = parse_expr2();
+    while (is_token('*') || is_token('/')) {
+        char op = token.kind;
+        next_token();
+        int rhs = parse_expr2();
+        if (op == '*') {
+            val *= rhs;
+        } else {
+            assert(op == '/');
+            assert(rhs != 0);
+            val /= rhs;
+        }
+    }
+    return val;
+}
+
+int parse_expr0()
+{
+    int val = parse_expr1();
+    while (is_token('+') || is_token('-')) {
+        char op = token.kind;
+        next_token();
+        int rhs = parse_expr1();
+        if (op == '+') {
+            val += rhs;
+        } else {
+            assert(op == '-');
+            val -= rhs;
+        }
+    }
+    return val;
+}
+
+int parse_expr()
+{
+    return parse_expr0();
+}
+
+int parse_expr_str(const char *str)
+{
+    init_stream(str);
+    return parse_expr();
+}
+
+#define TEST_EXPR(x) assert(parse_expr_str(#x) == (x))
+
+void parse_test(void)
+{
+    // clang-format off
+    TEST_EXPR(1);
+    TEST_EXPR(-1);
+    TEST_EXPR(1);
+    TEST_EXPR(-1);
+    TEST_EXPR(1-(-1));
+    TEST_EXPR((1));
+    TEST_EXPR(1-2-3);
+    TEST_EXPR(2*3+4*5);
+    TEST_EXPR(2+-3);
+    TEST_EXPR(2*(3+4)*5);
+    // clang-format on
+}
+
+#undef TEST_EXPR
+
 int main()
 {
     buf_test();
+    lex_test();
     str_intern_test();
-    lex_text();
+    parse_test();
 }
