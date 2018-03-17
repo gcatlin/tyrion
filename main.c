@@ -43,21 +43,21 @@ typedef struct {
 #define buf__len(b) buf__raw(b)[0]
 #define buf__cap(b) buf__raw(b)[1]
 
-#define buf__fit(b, n)  (buf__fits(b, n) ? 0 : buf__grow(b, n))
+#define buf__fit(b, n)  (buf__fits(b, n) ? 0 : buf__grow(b, buf_len(b)+(n)))
 #define buf__fits(b, n) ((b) && buf__len(b)+(n) <= buf__cap(b))
-#define buf__grow(b, n) (*((void **)&(b)) = buf___grow((b), buf_len(b)+(n), sizeof(*(b))))
+#define buf__grow(b, n) (*((void **)&(b)) = buf___grow((b), (n), sizeof(*(b))))
 
 #define buf_cap(b)        ((b) ? buf__cap(b) : 0)
 #define buf_len(b)        ((b) ? buf__len(b) : 0)
 #define buf_hdr(b)        ((buf_hdr_t *)buf__raw(b))
-#define buf_free(b)       ((b) ? free(buf__raw(b)), (b) = NULL : 0)
-#define buf_push(b, x)    (buf__fit(b, 1), (b)[buf__len(b)++] = (x), (b))
-#define buf_reserve(b, n) (buf__fit(b, (n)), (b)[buf__len(b)])
+#define buf_free(b)       ((b) ? (free(buf__raw(b)), (b) = NULL) : 0)
+#define buf_push(b, x  )  (buf__fit(b, 1), (b)[buf__len(b)++] = (x))
+#define buf_reserve(b, n) (buf__fit(b, n), (b)[buf__len(b)])
 
 // for use in debugger
 size_t bufcap(const void *b) { return buf_cap(b); }
 size_t buflen(const void *b) { return buf_len(b); }
-buf_hdr_t *_bufhdr(const void *b) { return buf_hdr(b); }
+buf_hdr_t *bufhdr(const void *b) { return buf_hdr(b); }
 
 void *buf___grow(const void *b, size_t len, size_t elem_size)
 {
