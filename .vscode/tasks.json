@@ -17,6 +17,32 @@
             "problemMatcher": []
         },
         {
+            "label": "Expand macros",
+            "type": "shell",
+            "command": "make",
+            "args": [
+                "expand"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Format",
+            "type": "shell",
+            "command": "make",
+            "args": [
+                "format"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "Run",
             "type": "shell",
             "command": "make",
