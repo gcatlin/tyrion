@@ -420,6 +420,7 @@ void parse_test(void)
     assert_expr(2*3+4*5);
     assert_expr(2+-3);
     assert_expr(2*(3+4)*5);
+    // clang-format on
 }
 
 #undef assert_expr
