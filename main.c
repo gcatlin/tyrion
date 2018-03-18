@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef uint8_t byte;
+
 #define MAX(x, y) ((x) >= (y) ? (x) : (y))
 
 void *xrealloc(void *ptr, size_t new_size)
@@ -425,12 +427,104 @@ void parse_test(void)
 
 #undef assert_expr
 
+#define PUSH(x) (*top++ = (x))
+#define POP() (*--top)
+#define assert_pops(n) assert(top - stack >= (n))
+#define assert_pushes(n) assert(top + (n) <= stack + MAX_STACK)
+
+typedef enum {
+    ADD,
+    SUB,
+    MUL,
+    DIV,
+    NEG,
+    LIT,
+    HALT,
+} Instrs;
+
+int32_t vm_exec(const uint8_t *code)
+{
+    enum { MAX_STACK = 1024 };
+    int32_t stack[MAX_STACK];
+    int32_t *top = stack;
+    for (;;) {
+        uint8_t op = *code++;
+        switch (op) {
+            case ADD: {
+                assert_pops(2);
+                int32_t right = POP();
+                int32_t left = POP();
+                assert_pushes(1);
+                PUSH(left + right);
+                break;
+            }
+            case SUB: {
+                assert_pops(2);
+                int32_t right = POP();
+                int32_t left = POP();
+                assert_pushes(1);
+                PUSH(left - right);
+                break;
+            }
+            case MUL: {
+                assert_pops(2);
+                int32_t right = POP();
+                int32_t left = POP();
+                assert_pushes(1);
+                PUSH(left * right);
+                break;
+            }
+            case DIV: {
+                assert_pops(2);
+                int32_t right = POP();
+                int32_t left = POP();
+                assert_pushes(1);
+                assert(right != 0);
+                PUSH(left / right);
+                break;
+            }
+            case NEG: {
+                assert_pops(1);
+                int32_t right = POP();
+                assert_pushes(1);
+                PUSH(-right);
+                break;
+            }
+            case LIT:
+                assert_pushes(1);
+                PUSH((code[0] << 0) | (code[1] << 8) | (code[2] << 16) | (code[3] << 24));
+                code += sizeof(uint32_t);
+                break;
+            case HALT:
+                assert_pops(1);
+                return POP();
+            default:
+                fatal("vm_exec: illegal opcode");
+                return 0;
+        }
+    }
+}
+
+void vm_test()
+{
+    assert(vm_exec((byte[]){ LIT, 1, 0, 0, 0, HALT }) == 1);
+    assert(vm_exec((byte[]){ LIT, 2, 0, 0, 0, LIT, 3, 0, 0, 0, ADD, HALT }) == 5);
+    assert(
+        vm_exec((byte[]){ LIT, 1, 0, 0, 0, LIT, 2, 0, 0, 0, LIT, 3, 0, 0, 0, ADD, ADD,
+                          HALT }) == 6);
+    assert(vm_exec((byte[]){ LIT, 2, 0, 0, 0, LIT, 3, 0, 0, 0, ADD, HALT }) == 5);
+    assert(vm_exec((byte[]){ LIT, 1, 0, 0, 0, NEG, HALT }) == -1);
+    assert(vm_exec((byte[]){ LIT, 2, 0, 0, 0, LIT, 3, 0, 0, 0, MUL, HALT }) == 6);
+    assert(vm_exec((byte[]){ LIT, 4, 0, 0, 0, LIT, 2, 0, 0, 0, DIV, HALT }) == 2);
+}
+
 void run_tests()
 {
     buf_test();
     lex_test();
     str_intern_test();
     parse_test();
+    vm_test();
 }
 
 int main(int argc, char *argv[])
