@@ -57,10 +57,11 @@ typedef struct {
 #define buf__grow(b, n) (*((void **)&(b)) = buf___grow((b), (n), sizeof(*(b))))
 
 #define buf_cap(b)        ((b) ? buf__cap(b) : 0)
-#define buf_len(b)        ((b) ? buf__len(b) : 0)
-#define buf_hdr(b)        ((buf_hdr_t *)buf__raw(b))
+#define buf_end(b)        ((b) + buf_len(b))
 #define buf_free(b)       ((b) ? (free(buf__raw(b)), (b) = NULL) : 0)
-#define buf_push(b, x  )  (buf__fit(b, 1), (b)[buf__len(b)++] = (x))
+#define buf_hdr(b)        ((buf_hdr_t *)buf__raw(b))
+#define buf_len(b)        ((b) ? buf__len(b) : 0)
+#define buf_push(b, x)    (buf__fit(b, 1), (b)[buf__len(b)++] = (x))
 #define buf_reserve(b, n) (buf__fit(b, n), (b)[buf__len(b)])
 
 // for use in debugger
@@ -70,10 +71,11 @@ buf_hdr_t *bufhdr(const void *b) { return buf_hdr(b); }
 
 void *buf___grow(const void *b, size_t len, size_t elem_size)
 {
+    assert(buf_cap(b) <= (SIZE_MAX - 1)/2);
     size_t cap = MAX(2 * buf_cap(b), len);
-    assert(0 < cap && len <= cap);
+    assert(len <= cap && cap <= (SIZE_MAX - offsetof(buf_hdr_t, buf))/elem_size);
     size_t size = offsetof(buf_hdr_t, buf) + elem_size * cap;
-    buf_hdr_t *hdr = xrealloc(b ? buf__raw(b) : NULL, size);
+    buf_hdr_t *hdr = (buf_hdr_t *)xrealloc(b ? buf__raw(b) : NULL, size);
     hdr->cap = cap;
     if (!b) hdr->len = 0;
     return hdr->buf;
@@ -84,15 +86,20 @@ void buf_test(void)
 {
     // setup
     int *b = NULL;
-    int N = 1024;
+    int n = 1024;
+
+    assert(b == buf_end(b));
+    assert(buf_len(b) == 0);
+    assert(buf_cap(b) == 0);
 
     // push increases len and cap
     assert(buf_len(b) == 0);
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < n; i++) {
         buf_push(b, i);
     }
-    assert(buf_len(b) == N);
-    assert(buf_cap(b) >= N);
+    assert(buf_len(b) == n);
+    assert(buf_cap(b) >= n);
+    assert(buf_end(b) - b == n);
 
     // push sets values
     for (int i = 0, max = buf_len(b); i < max; i++) {
@@ -107,23 +114,23 @@ void buf_test(void)
 typedef struct {
     size_t len;
     const char *str;
-} intern_str_t;
+} intern_t;
 
-static intern_str_t *interns;
+static intern_t *interns;
 
 const char *str_intern_range(const char *restrict start, const char *restrict end)
 {
     size_t len = end - start;
-    for (size_t i = 0, n = buf_len(interns); i < n; i++) {
-        if (interns[i].len == len && strncmp(interns[i].str, start, len) == 0) {
-            return interns[i].str;
+    for (intern_t *it = interns; it != buf_end(interns); it++) {
+        if (it->len == len && strncmp(it->str, start, len) == 0) {
+            return it->str;
         }
     }
 
     char *str = xmalloc(len + 1);
     memcpy(str, start, len);
     str[len] = 0;
-    buf_push(interns, ((intern_str_t){ len, str }));
+    buf_push(interns, ((intern_t){ len, str }));
     return str;
 }
 
@@ -199,16 +206,8 @@ void next_token()
 {
     token.start = stream;
     switch (*stream) {
-        case '0':
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9': {
+        case '0': case '1': case '2': case '3': case '4': case '5': case '6':
+        case '7': case '8': case '9': {
             int val = 0;
             while (isdigit(*stream)) {
                 val *= 10;
@@ -218,58 +217,14 @@ void next_token()
             token.num = val;
             break;
         }
-        case 'a':
-        case 'b':
-        case 'c':
-        case 'd':
-        case 'e':
-        case 'f':
-        case 'g':
-        case 'h':
-        case 'i':
-        case 'j':
-        case 'k':
-        case 'l':
-        case 'm':
-        case 'n':
-        case 'o':
-        case 'p':
-        case 'q':
-        case 'r':
-        case 's':
-        case 't':
-        case 'u':
-        case 'v':
-        case 'w':
-        case 'x':
-        case 'y':
-        case 'z':
-        case 'A':
-        case 'B':
-        case 'C':
-        case 'D':
-        case 'E':
-        case 'F':
-        case 'G':
-        case 'H':
-        case 'I':
-        case 'J':
-        case 'K':
-        case 'L':
-        case 'M':
-        case 'N':
-        case 'O':
-        case 'P':
-        case 'Q':
-        case 'R':
-        case 'S':
-        case 'T':
-        case 'U':
-        case 'V':
-        case 'W':
-        case 'X':
-        case 'Y':
-        case 'Z':
+        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
+        case 'h': case 'i': case 'j': case 'k': case 'l': case 'm': case 'n':
+        case 'o': case 'p': case 'q': case 'r': case 's': case 't': case 'u':
+        case 'v': case 'w': case 'x': case 'y': case 'z':
+        case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
+        case 'H': case 'I': case 'J': case 'K': case 'L': case 'M': case 'N':
+        case 'O': case 'P': case 'Q': case 'R': case 'S': case 'T': case 'U':
+        case 'V': case 'W': case 'X': case 'Y': case 'Z':
         case '_': {
             while (isalnum(*stream) || *stream == '_') {
                 stream++;
@@ -341,16 +296,32 @@ static inline bool expect_token(TokenKind kind)
     return false;
 }
 
+#define assert_token(x)      assert(match_token(x))
+#define assert_token_eof()   assert(is_token(0))
+#define assert_token_int(x)  assert(token.num == (x) && match_token(TOKEN_INT))
+#define assert_token_name(x) assert(token.name == str_intern(x) && match_token(TOKEN_NAME))
+
 void lex_test(void)
 {
-    const char *source = "XY+(XY)_HELLO1,234+foo!994";
-    printf("SOURCE: \"%s\"\n", source);
-    init_stream(source);
-    while (token.kind) {
-        print_token(token);
-        next_token();
-    }
+    const char *str = "XY+(XY)_HELLO1,234+994";
+    init_stream(str);
+    assert_token_name("XY");
+    assert_token('+');
+    assert_token('(');
+    assert_token_name("XY");
+    assert_token(')');
+    assert_token_name("_HELLO1");
+    assert_token(',');
+    assert_token_int(234);
+    assert_token('+');
+    assert_token_int(994);
+    assert_token_eof();
 }
+
+#undef assert_token
+#undef assert_token_eof
+#undef assert_token_int
+#undef assert_token_name
 
 //
 // Grammar
@@ -434,30 +405,33 @@ int parse_expr_str(const char *str)
     return parse_expr();
 }
 
-#define TEST_EXPR(x) assert(parse_expr_str(#x) == (x))
+#define assert_expr(x) assert(parse_expr_str(#x) == (x))
 
 void parse_test(void)
 {
-    // clang-format off
-    TEST_EXPR(1);
-    TEST_EXPR(-1);
-    TEST_EXPR(1);
-    TEST_EXPR(-1);
-    TEST_EXPR(1-(-1));
-    TEST_EXPR((1));
-    TEST_EXPR(1-2-3);
-    TEST_EXPR(2*3+4*5);
-    TEST_EXPR(2+-3);
-    TEST_EXPR(2*(3+4)*5);
-    // clang-format on
+    assert_expr(1);
+    assert_expr(-1);
+    assert_expr(1);
+    assert_expr(-1);
+    assert_expr(1-(-1));
+    assert_expr((1));
+    assert_expr(1-2-3);
+    assert_expr(2*3+4*5);
+    assert_expr(2+-3);
+    assert_expr(2*(3+4)*5);
 }
 
-#undef TEST_EXPR
+#undef assert_expr
 
-int main()
+void run_tests()
 {
     buf_test();
     lex_test();
     str_intern_test();
     parse_test();
+}
+
+int main(int argc, char *argv[])
+{
+    run_tests();
 }
