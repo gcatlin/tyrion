@@ -334,6 +334,27 @@ void lex_test(void)
 // expr0 = expr1 ([+-] expr1)*
 // expr  = expr0
 
+static byte *code;
+
+enum {
+    ADD,
+    SUB,
+    MUL,
+    DIV,
+    NEG,
+    LIT,
+    HALT,
+};
+
+static const struct {
+    const char name[4];
+    int size;
+} instr_info[] = {
+    [ADD] = { "ADD ", 1 },  [SUB] = { "SUB ", 1 }, [MUL] = { "MUL ", 1 },
+    [DIV] = { "DIV ", 1 },  [NEG] = { "NEG ", 1 }, [LIT] = { "LIT ", 5 },
+    [HALT] = { "HALT", 1 },
+};
+
 int parse_expr();
 
 int parse_expr3()
@@ -341,6 +362,11 @@ int parse_expr3()
     if (is_token(TOKEN_INT)) {
         int val = token.num;
         next_token();
+        buf_push(code, LIT);
+        buf_push(code, val << 0);
+        buf_push(code, val << 8);
+        buf_push(code, val << 16);
+        buf_push(code, val << 24);
         return val;
     } else if (match_token('(')) {
         int val = parse_expr();
@@ -354,9 +380,13 @@ int parse_expr3()
 int parse_expr2()
 {
     if (match_token('-')) {
-        return -parse_expr2();
+        int val = parse_expr2();
+        buf_push(code, NEG);
+        return -val;
     } else if (match_token('+')) {
-        return parse_expr2();
+        int val = parse_expr2();
+        buf_push(code, ADD);
+        return val;
     }
     return parse_expr3();
 }
@@ -369,10 +399,12 @@ int parse_expr1()
         next_token();
         int rhs = parse_expr2();
         if (op == '*') {
+            buf_push(code, MUL);
             val *= rhs;
         } else {
             assert(op == '/');
             assert(rhs != 0);
+            buf_push(code, DIV);
             val /= rhs;
         }
     }
@@ -387,8 +419,10 @@ int parse_expr0()
         next_token();
         int rhs = parse_expr1();
         if (op == '+') {
+            buf_push(code, ADD);
             val += rhs;
         } else {
+            buf_push(code, SUB);
             assert(op == '-');
             val -= rhs;
         }
@@ -431,16 +465,6 @@ void parse_test(void)
 #define POP() (*--top)
 #define assert_pops(n) assert(top - stack >= (n))
 #define assert_pushes(n) assert(top + (n) <= stack + MAX_STACK)
-
-typedef enum {
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    NEG,
-    LIT,
-    HALT,
-} Instrs;
 
 int32_t vm_exec(const uint8_t *code)
 {
@@ -518,13 +542,82 @@ void vm_test()
     assert(vm_exec((byte[]){ LIT, 4, 0, 0, 0, LIT, 2, 0, 0, 0, DIV, HALT }) == 2);
 }
 
+void print_lit_instr(int offset)
+{
+    byte *pc = &code[offset + 1];
+    int val = (pc[0] << 0) | (pc[1] << 8) | (pc[2] << 16) | (pc[3] << 24);
+    printf("%-16s %4d\n", "LIT", val);
+}
+
+void print_simple_instr(int offset)
+{
+    byte instr = code[offset];
+    printf("%-16s\n", instr_info[instr].name);
+}
+
+#define HEX "%02hhX"
+
+int print_instr(int offset)
+{
+    byte instr = code[offset];
+    int size = instr_info[instr].size; // TODO handle invalid instr (size=1)
+    // printf("instr:%d size:%d\n", instr, size);
+
+    // Instruction bytes
+    printf("%06d ", offset);
+    for (int i = 0; i < size; ++i) {
+        printf(HEX " ", (byte)code[offset + i]);
+    }
+    for (int i = size; i < 5; ++i) {
+        printf("   ");
+    }
+
+    switch (instr) {
+        case LIT:
+            print_lit_instr(offset);
+            break;
+        default:
+            print_simple_instr(offset);
+            break;
+    }
+    return size;
+}
+
+void print_disassembly()
+{
+    printf("OFFSET B0 B1 B2 B3 B4 OPCODE\n");
+    printf("------ -- -- -- -- -- ----------------\n");
+    for (int offset = 0, max = buf_len(code); offset < max;) {
+        offset += print_instr(offset);
+    }
+    puts("");
+}
+
+#define assert_compile_expr(x) \
+    (buf_free(code), parse_expr_str(#x), buf_push(code, HALT), assert(vm_exec(code) == (x)))
+
+void compile_test()
+{
+    // clang-format off
+    assert_compile_expr(1);
+    assert_compile_expr(-1);
+    assert_compile_expr(1+2);
+    assert_compile_expr(2*3);
+    assert_compile_expr((2*3)+(4*5));
+    assert_compile_expr(10/2);
+    // clang-format off
+}
+
+#undef assert_compile_expr
+
 void run_tests()
 {
     buf_test();
-    lex_test();
     str_intern_test();
+    lex_test();
     parse_test();
     vm_test();
+    compile_test();
 }
 
 int main(int argc, char *argv[])
