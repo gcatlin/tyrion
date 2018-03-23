@@ -1,5 +1,7 @@
 #include <assert.h>
 #include <ctype.h>
+#include <limits.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -9,6 +11,8 @@
 #include <string.h>
 
 typedef uint8_t byte;
+typedef double f64;
+typedef uint64_t u64;
 
 #define MAX(x, y) ((x) >= (y) ? (x) : (y))
 
@@ -41,6 +45,16 @@ void fatal(const char *fmt, ...)
     printf("\n");
     va_end(args);
     exit(1);
+}
+
+void syntax_error(const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    printf("SYNTAX ERROR: ");
+    vprintf(fmt, args);
+    printf("\n");
+    va_end(args);
 }
 
 typedef struct {
@@ -160,9 +174,20 @@ typedef enum {
     // Reserve first 128 values for one-char tokens
     TOKEN_LAST_CHAR = 127,
     TOKEN_INT,
+    TOKEN_FLOAT,
     TOKEN_NAME,
     // ...
 } TokenKind;
+
+typedef enum {
+    TOKENMOD_NONE,
+    TOKENMOD_BIN,
+    TOKENMOD_OCT,
+    TOKENMOD_DEC,
+    TOKENMOD_HEX,
+    TOKENMOD_CHAR,
+    // ...
+} TokenMod;
 
 const char *token_kind_names[] = {
     // clang-format off
@@ -173,10 +198,12 @@ const char *token_kind_names[] = {
 
 typedef struct {
     TokenKind kind;
+    TokenMod mod;
     const char *start;
     const char *end;
     union {
-        int num;
+        f64 float_val;
+        u64 int_val;
         const char *name;
     };
 } Token;
@@ -204,20 +231,195 @@ void init_keywords()
     // ...
 }
 
+// clang format off
+u64 char_to_digit[256] = {
+    ['0'] = 0,  ['1'] = 1,  ['2'] = 2,  ['3'] = 3,  ['4'] = 4,  ['5'] = 5,
+    ['6'] = 6,  ['7'] = 7,  ['8'] = 8,  ['9'] = 9,  ['a'] = 10, ['b'] = 11,
+    ['c'] = 12, ['d'] = 13, ['e'] = 14, ['f'] = 15, ['A'] = 10, ['B'] = 11,
+    ['C'] = 12, ['D'] = 13, ['E'] = 14, ['F'] = 15,
+};
+// clang format on
+
+char escape_to_char[256] = {
+    ['0'] = 0,
+    ['\''] = '\'',
+    ['"'] = '\"',
+    ['?'] = '\?',
+    ['\\'] = '\\',
+    ['a'] = '\a',
+    ['b'] = '\b',
+    ['f'] = '\f',
+    ['n'] = '\n',
+    ['r'] = '\r',
+    ['t'] = '\t',
+    ['v'] = '\v',
+};
+
+void scan_char()
+{
+    assert(*stream == '\'');
+    stream++;
+
+    char val = 0;
+    if (*stream == '\'') {
+        syntax_error("Char literal cannot be empty");
+        stream++;
+    } else if (*stream == '\n') {
+        syntax_error("Char literal cannot contain newline");
+        stream++;
+    } else if (*stream == '\\') {
+        stream++;
+        val = escape_to_char[(byte)*stream];
+        if (val == 0 && *stream != '0') {
+            syntax_error("Invalid char literal escape '\\%c'", *stream);
+        }
+        stream++;
+    } else {
+        val = *stream;
+        stream++;
+    }
+    if (*stream != '\'') {
+        syntax_error("Expected closing char quote, got '%c'", *stream);
+    } else {
+        stream++;
+    }
+
+    token.kind = TOKEN_INT;
+    token.mod = TOKENMOD_CHAR;
+    token.int_val = val;
+}
+
+void scan_float()
+{
+    const char *start = stream;
+    while (isdigit(*stream)) {
+        stream++;
+    }
+    if (*stream == '.') {
+        stream++;
+    }
+    while (isdigit(*stream)) {
+        stream++;
+    }
+    if (tolower(*stream) == 'e') {
+        stream++;
+        if (*stream == '-' || *stream == '+') {
+            stream++;
+        }
+        if (!isdigit(*stream)) {
+            syntax_error("Expected digit after float literal exponent, found '%c'", *stream);
+        }
+        while (isdigit(*stream)) {
+            stream++;
+        }
+    }
+    f64 val = strtod(start, NULL);
+    if (val == HUGE_VAL || val == -HUGE_VAL) {
+        syntax_error("Float literal out of range");
+    }
+    token.kind = TOKEN_FLOAT;
+    token.float_val = val;
+}
+
+void scan_int()
+{
+    u64 base = 10;
+    // TokenMod mod;
+    if (*stream == '0') {
+        stream++;
+        if (tolower(*stream) == 'x') {
+            // Hexadecimal
+            base = 16;
+            stream++;
+        } else if (isdigit(*stream)) {
+            // Octal
+            // TODO ensure trailing digits are 0, 1, 2, 3, 4, 5, 6, 7
+            base = 8;
+        } else if (tolower(*stream) == 'b') {
+            // Binary
+            // TODO ensure trailing digits are 0, 1
+            base = 2;
+            stream++;
+        } else {
+            syntax_error("Invalid integer literal prefix '%.*s'", 2, stream - 1);
+            stream++;
+        }
+    }
+
+    u64 val = 0;
+    for (;;) {
+        u64 digit = char_to_digit[(byte)*stream];
+        if (digit == 0 && *stream != '0') {
+            if (*stream == '_') {
+                stream++;
+                continue;
+            }
+            break;
+        }
+        if (digit >= base) {
+            syntax_error("Digit '%c' out of range for base %llu", *stream, base);
+        }
+        if (val > (UINT64_MAX - digit) / base) {
+            syntax_error("Integer literal overflow");
+            while (isdigit(*stream)) {
+                stream++;
+            }
+            val = 0;
+            break;
+        }
+        val = val * base + digit;
+        stream++;
+    }
+    token.kind = TOKEN_INT;
+    token.int_val = val;
+}
+
+void scan_str()
+{
+    assert(0);
+    token.kind = TOKEN_NAME;
+    // token.mod = TOKENMOD_NONE;
+}
+
 void next_token()
 {
+repeat:
     token.start = stream;
+    token.mod = 0;
     switch (*stream) {
+        // clang-format off
+        case ' ': case '\t': case '\r': case '\n': case '\v': case '\f': { // clang-format on
+            while (isspace(*stream)) {
+                stream++;
+            }
+            goto repeat;
+            break;
+        }
+        case '\'': {
+            scan_char();
+            break;
+        }
+        case '"': {
+            scan_str();
+            break;
+        }
+        case '.': {
+            scan_float();
+            break;
+        }
         // clang-format off
         case '0': case '1': case '2': case '3': case '4': case '5': case '6':
         case '7': case '8': case '9': { // clang-format on
-            int val = 0;
             while (isdigit(*stream)) {
-                val *= 10;
-                val += *stream++ - '0';
+                stream++;
             }
-            token.kind = TOKEN_INT;
-            token.num = val;
+            if (*stream == '.' || tolower(*stream) == 'e') {
+                stream = token.start;
+                scan_float();
+            } else {
+                stream = token.start;
+                scan_int();
+            }
             break;
         }
         // clang-format off
@@ -237,9 +439,10 @@ void next_token()
             token.name = str_intern_range(token.start, stream);
             break;
         }
-        default:
+        default: {
             token.kind = *stream++;
             break;
+        }
     }
     token.end = stream;
 }
@@ -255,8 +458,11 @@ void print_token(Token token)
     TokenKind k = token.kind;
     printf("TOKEN: ");
     switch (k) {
+        case TOKEN_FLOAT:
+            printf(" %f", token.float_val);
+            break;
         case TOKEN_INT:
-            printf(" %d", token.num);
+            printf(" %llu", token.int_val);
             break;
         case TOKEN_NAME:
             break;
@@ -294,19 +500,46 @@ static inline bool expect_token(TokenKind kind)
         next_token();
         return true;
     }
-    fatal("expected token %s, got %s\n", token_kind_name(kind), token_kind_name(token.kind));
+    fatal("expected token %s, got %s", token_kind_name(kind), token_kind_name(token.kind));
     return false;
 }
 
 #define assert_token(x) assert(match_token(x))
 #define assert_token_eof() assert(is_token(0))
-#define assert_token_int(x) assert(token.num == (x) && match_token(TOKEN_INT))
+#define assert_token_float(x) assert(token.float_val == (x) && match_token(TOKEN_FLOAT))
+#define assert_token_int(x) assert(token.int_val == (x) && match_token(TOKEN_INT))
 #define assert_token_name(x) assert(token.name == str_intern(x) && match_token(TOKEN_NAME))
 
 void lex_test(void)
 {
-    const char *str = "XY+(XY)_HELLO1,234+994";
-    init_stream(str);
+    // Ensure UINT64_MAX doesn't trigger overflow
+    // init_stream("0x10000000000000000");
+
+    // Integer literal tests
+    init_stream("18446744073709551615 0xffff_ffff_ffff_ffff 0b1111 042");
+    assert_token_int(18446744073709551615ull);
+    assert_token_int(0xffffffffffffffffull);
+    assert_token_int(0xf);
+    assert_token_int(042);
+    assert_token_eof();
+
+    // Float literal tests
+    init_stream("3.14 .123 42. 3e10");
+    assert_token_float(3.14);
+    assert_token_float(.123);
+    assert_token_float(42.);
+    assert_token_float(3e10);
+    assert_token_eof();
+
+    // Char literal tests
+    init_stream("'a' '\\n' '\\r'");
+    assert_token_int('a');
+    assert_token_int('\n');
+    assert_token_int('\r');
+    assert_token_eof();
+
+    // Misc tests
+    init_stream("XY+(XY)_HELLO1,234+994");
     assert_token_name("XY");
     assert_token('+');
     assert_token('(');
@@ -355,12 +588,13 @@ static const struct {
     [HALT] = { "HALT", 1 },
 };
 
-int parse_expr();
+u64 parse_expr();
 
-int parse_expr3()
+u64 parse_expr3()
 {
+    u64 val;
     if (is_token(TOKEN_INT)) {
-        int val = token.num;
+        val = token.int_val;
         next_token();
         buf_push(code, LIT);
         buf_push(code, val << 0);
@@ -369,7 +603,7 @@ int parse_expr3()
         buf_push(code, val << 24);
         return val;
     } else if (match_token('(')) {
-        int val = parse_expr();
+        val = parse_expr();
         expect_token(')');
         return val;
     }
@@ -377,21 +611,22 @@ int parse_expr3()
     return 0;
 }
 
-int parse_expr2()
+u64 parse_expr2()
 {
+    u64 val;
     if (match_token('-')) {
-        int val = parse_expr2();
+        val = parse_expr2();
         buf_push(code, NEG);
         return -val;
     } else if (match_token('+')) {
-        int val = parse_expr2();
+        val = parse_expr2();
         buf_push(code, ADD);
         return val;
     }
     return parse_expr3();
 }
 
-int parse_expr1()
+u64 parse_expr1()
 {
     int val = parse_expr2();
     while (is_token('*') || is_token('/')) {
@@ -411,7 +646,7 @@ int parse_expr1()
     return val;
 }
 
-int parse_expr0()
+u64 parse_expr0()
 {
     int val = parse_expr1();
     while (is_token('+') || is_token('-')) {
@@ -430,7 +665,7 @@ int parse_expr0()
     return val;
 }
 
-int parse_expr()
+u64 parse_expr()
 {
     return parse_expr0();
 }
