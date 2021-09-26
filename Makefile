@@ -18,7 +18,7 @@ format:
 	clang-format -i main.c
 
 release:
-	$(CC) $(CFLAGS) -O3 main.c
+	$(CC) $(CFLAGS) -O2 main.c
 
 run: build
 	./a.out
